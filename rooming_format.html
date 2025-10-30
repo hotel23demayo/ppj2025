@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Reservas PPJ</title>
+    <link rel="icon" type="image/png" href="reservaPencil.png">
+    <style>
+        /* Estilos para el botón de guardar */
+        #btnGuardar {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #btnGuardar:hover {
+            background-color: #45a049;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 75px;
+        }
+
+        .logo {
+            width: 70px;
+            height: 70px;
+            cursor: pointer;
+            transition: transform 0.2s ease; /* Agregamos la transición para el cambio de aspecto */
+        }
+
+        /* Agregamos los estilos para el efecto de subrayado al hacer hover */
+        .logo-container:hover .logo {
+            transform: scale(1.1); /* Escalamos la imagen al hacer hover */
+            border-bottom: 4px solid #4CAF50; /* Agregamos el borde inferior color verde al hacer hover */
+        }
+
+        #resultContainer {
+            margin: 20px auto;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        #resultOutput {
+            background-color: #f4f4f4;
+            padding: 10px;
+            white-space: pre-wrap;
+            margin-top: 20px;
+            font-size: 20px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="logo-container">
+        <img class="logo" src="reservaCalendar.png" title="Click para seleccionar Archivo" alt="Calendar Logo" onclick="handleFileSelect()">
+    </div>
+
+    <h1>Rooming Jubilados</h1>
+    
+	<div id="resultContainer">
+	    <h2>Listado de Reservas</h2>
+	    <div id="tableOutput"></div>
+	    <pre id="statsOutput"></pre>
+    	</div>
+    <script>
+	// --- FUNCIONES PRINCIPALES ---
+
+	function handleFileSelect() {
+	    const fileInput = document.createElement('input');
+	    fileInput.type = 'file';
+	    fileInput.accept = '.csv';
+	    fileInput.addEventListener('change', (event) => {
+		const file = event.target.files[0];
+		const reader = new FileReader();
+
+		reader.onload = () => {
+		    const fileContents = reader.result;
+		    const resultObject = processData(fileContents); // Devuelve {data, stats, reservations}
+
+		    const tableContainer = document.getElementById('tableOutput');
+		    const statsOutput = document.getElementById('statsOutput');
+		    
+		    // 1. Mostrar Estadísticas y Limpiar
+		    statsOutput.textContent = resultObject.stats;
+		    tableContainer.innerHTML = ''; // Limpiar visualización anterior
+
+		    // 2. Construir y Mostrar la Tabla con Datos Ordenados
+		    tableContainer.innerHTML = buildHTMLTable(resultObject.reservations);
+
+		    // 3. Crear o Actualizar el Botón de Guardar
+		    let downloadButton = document.getElementById('btnGuardar');
+		    if (!downloadButton) {
+		        downloadButton = document.createElement('button');
+		        downloadButton.textContent = 'Guardar como archivo CSV (LibreOffice compatible)';
+		        downloadButton.id = 'btnGuardar';
+		        // Añadir el botón al contenedor principal (fuera de la tabla)
+		        document.getElementById('resultContainer').appendChild(downloadButton); 
+		    }
+		    
+		    // Asignar la función de descarga al botón (usa resultObject.data limpia)
+		    downloadButton.onclick = () => {
+		        const csvDataFinal = addHeadersToCSV(resultObject.data);
+		        downloadCSV(csvDataFinal, 'reservas_ingresan.csv');
+		    };
+		};
+
+		reader.readAsText(file);
+	    });
+
+	    fileInput.click();
+	}
+
+	function processData(fileContents) {
+	    var lines = fileContents.split('\n');
+	    var reservations = []; // Array para almacenar objetos de reserva
+	    var roomCount = {}; 
+	    var peopleCount = 0; 
+
+	    // Omitir el encabezado (i = 1)
+	    for (var i = 1; i < lines.length; i++) {
+		var line = lines[i].trim();
+		if (line === '') continue; 
+		
+		// Asumiendo que el archivo de entrada usa coma como separador
+		var fields = line.split(',');
+		
+		// Validar que la línea tenga suficientes campos
+		if (fields.length < 15) continue; 
+		
+		// --- EXTRACCIÓN Y LIMPIEZA DE CAMPOS ---
+		// fields[2] -> Nro. habitación
+		var roomNumber = fields[2].replace(/[^\d]/g, '');
+		
+		var din = fields[8];
+		var dout = fields[9];
+		var dni = fields[12];
+		var passengerName = fields[13];
+		var age = fields[14];
+		
+		// --- CREAR OBJETO DE RESERVA ---
+		var reservation = {
+		    'Nro. habitación': roomNumber,
+		    'Fecha de ingreso': din,
+		    'Fecha de egreso': dout,
+		    'Cantidad plazas': fields[5],
+		    'Tipo documento': fields[11],
+		    'Nro. doc.': dni,
+		    'Apellido y nombre': passengerName,
+		    'Edad': age,
+		    'Voucher': fields[6],
+		    'Tipo': fields[3], // fields[3] -> Tipo habitación
+		    'Observación habitación': fields[4] // fields[4] -> Observación habitación
+		};
+
+		reservations.push(reservation);
+		
+		// --- CONTEO DE ESTADÍSTICAS ---
+		roomCount[roomNumber] = (roomCount[roomNumber] || 0) + 1;
+		peopleCount++;
+	    }
+
+	    // --- ORDENAMIENTO (Por Habitación y luego por Nombre) ---
+	    reservations.sort((a, b) => {
+		// 1. Ordena por Nro. habitación
+		if (a['Nro. habitación'] < b['Nro. habitación']) return -1;
+		if (a['Nro. habitación'] > b['Nro. habitación']) return 1;
+		
+		// 2. Si la habitación es la misma, ordena por Apellido y nombre
+		if (a['Apellido y nombre'] < b['Apellido y nombre']) return -1;
+		if (a['Apellido y nombre'] > b['Apellido y nombre']) return 1;
+		
+		return 0;
+	    });
+
+	    // --- CONVERSIÓN A STRING CSV (Para la descarga) ---
+	    // ¡Usamos punto y coma ( como delimitador para LibreOffice!
+	    var csvOutputData = reservations.map(res => {
+		return Object.values(res).join(';');
+	    }).join('\n');
+	    
+	    // Generar las estadísticas por separado
+	    var statsOutput = 
+		'Habitaciones que se ocupan: ' + Object.keys(roomCount).length + '\n' +
+		'Cantidad de pax: ' + peopleCount + '\n';
+		
+	    // Devolver el objeto estructurado
+	    return {
+		data: csvOutputData, // Datos limpios y ordenados (con 
+		stats: statsOutput,
+		reservations: reservations // Array de objetos ordenados (para la tabla)
+	    };
+	}
+
+
+	// --- FUNCIONES AUXILIARES ---
+
+	function buildHTMLTable(reservations) {
+	    if (reservations.length === 0) return '<p>No se encontraron reservas.</p>';
+
+	    // Usamos las claves del primer objeto para los encabezados
+	    const headers = Object.keys(reservations[0]); 
+	    
+	    let html = '<table style="width:100%; border-collapse: collapse; margin-top: 15px;">';
+	    
+	    // Encabezados de la tabla
+	    html += '<thead><tr>';
+	    headers.forEach(header => {
+		html += `<th style="border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left;">${header}</th>`;
+	    });
+	    html += '</tr></thead>';
+
+	    // Cuerpo de la tabla
+	    html += '<tbody>';
+	    reservations.forEach(res => {
+		html += '<tr>';
+		headers.forEach(key => {
+		    let cellContent = res[key];
+		    // Resaltamos con negrita el Nro. Habitación y Nombre
+		    if (key === 'Nro. habitación' || key === 'Apellido y nombre') {
+		        cellContent = `<b>${cellContent}</b>`;
+		    }
+		    html += `<td style="border: 1px solid #ddd; padding: 8px;">${cellContent}</td>`;
+		});
+		html += '</tr>';
+	    });
+	    html += '</tbody></table>';
+
+	    return html;
+	}
+
+	function addHeadersToCSV(csvData) {
+	    // Encabezados con punto y coma ( para compatibilidad con LibreOffice
+	    var headers = 'Nro. habitación;Fecha de ingreso;Fecha de egreso;Cantidad plazas;Tipo documento;Nro. doc.;Apellido y nombre;Edad;Voucher;Tipo;Observación habitación\n';
+	    return headers + csvData;
+	}
+
+	// Función de descarga
+	function downloadCSV(csv, filename) {
+	    var csvFile = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); // Agregado BOM para mejor compatibilidad
+
+	    if (window.navigator.msSaveBlob) {
+		// IE 10+
+		window.navigator.msSaveBlob(csvFile, filename);
+	    } else {
+		// Otros navegadores
+		var downloadLink = document.createElement('a');
+		downloadLink.href = URL.createObjectURL(csvFile);
+		downloadLink.setAttribute('download', filename);
+		downloadLink.style.display = 'none'; // Asegurar que no se muestre
+		document.body.appendChild(downloadLink);
+		downloadLink.click();
+		document.body.removeChild(downloadLink);
+	    }
+	}
+
+    </script>
+</body>
+
+</html>
+
