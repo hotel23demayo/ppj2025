@@ -404,7 +404,7 @@ function relevantDataToForm(relevantData) {
 
         // 1. Priorizar por DNI (Lógica anterior, correcta)
         group.sort(function(a, b) {
-            return parseInt(b.dni) - parseInt(a.dni); 
+            return parseInt(a.dni) - parseInt(b.dni); 
         });
 
         var item = group[0];
